@@ -1,4 +1,4 @@
-import time, requests, os, platform, subprocess, socket, testingcrypto_c2
+import time, requests, os, platform, subprocess, socket, cipher
 
 # Configuración de red del Servidor C2
 C2_URL = "http://localhost:8080"
