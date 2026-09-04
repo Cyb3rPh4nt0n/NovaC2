@@ -249,7 +249,7 @@ def navigate_to(view_name):
 
 # --- MARCO GENERAL DEL PANEL ---
 with ui.header().classes('bg-slate-900 border-b border-slate-700 items-center justify-between px-6 py-3'):
-    ui.label('EMPIRE // STARKILLER PYTHON (REAL C2)').classes('font-black font-mono tracking-widest text-lg text-white')
+    ui.label('NovaC" // PYTHON SERVER C2').classes('font-black font-mono tracking-widest text-lg text-white')
 
 with ui.left_drawer(value=True).classes('bg-slate-950 p-4 flex flex-col gap-2').props('width=260'):
     ui.button('Dashboard', icon='dashboard', on_click=lambda: navigate_to('dashboard')).props('flat align=left').classes('w-full font-mono text-white')
