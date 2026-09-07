@@ -1,10 +1,10 @@
 # Framework Web e Interfaz Gráfica (Servidor)
-nicegui>=1.4.0
-fastapi>=0.100.0
-uvicorn>=0.22.0
+nicegui>=1.4.21
+fastapi>=0.110.0
+uvicorn>=0.30.0
 
-# Cliente HTTP (Agente)
-requests>=2.31.0
+# Cliente HTTP Asíncrono (Agente)
+aiohttp>=3.9.5
 
-# Capa de Criptografía Avanzada
-cryptography>=41.0.0
+# Capa de Criptografía Avanzada (Compartido)
+cryptography>=42.0.0
