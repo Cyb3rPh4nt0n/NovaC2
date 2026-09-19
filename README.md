@@ -31,7 +31,7 @@ Sigue estos pasos para montar el entorno de laboratorio y poner en marcha el fra
 ### 1. Clonar el repositorio y preparar el entorno
 ```bash
 # Clonar el proyecto
-git clone https://github.com
+git clone https://github.com/Cyb3rPh4nt0n/NovaC2
 cd tu-repositorio-c2
 
 # Crear un entorno virtual
